@@ -1,0 +1,75 @@
+DWG2CNC - Konversi DWG/DXF ke G-code untuk mesin CNC MiniCut (kontroler FLSK F2100B)
+=====================================================================================
+
+ISI FOLDER
+  cpp\             -> sumber versi C++ (build.bat -> dist\dwg2cnc.exe dan dist\dwg2cnc-gui.exe).
+                      exe tanpa Python, LibreDWG sudah di dalamnya, bisa disalin ke PC lain.
+                      dwg2cnc.ini di samping exe = pengaturan.
+  web\             -> sumber tool web offline (BUKA-WEB.bat di dalamnya): upload DWG, preview,
+                      SIMULASI 3D, simpan .TXT
+  python\          -> versi Python (acuan): pythonKONVERSI.bat + dwg2cnc.py + dwg2cnc.ini
+  libredwg\        -> pembaca file DWG (LibreDWG, GPLv3), dipakai cpp dan python
+  dist\            -> hasil build (tidak masuk git)
+
+PERSIAPAN (sekali saja)
+  1. Install Python 3 dari https://www.python.org/downloads/
+     Centang "Add python.exe to PATH".
+  2. Jalankan pythonKONVERSI.bat sekali; modul ezdxf + matplotlib dipasang otomatis.
+
+CARA PAKAI
+  1. Seret file .dwg / .dxf (boleh banyak sekaligus, atau satu folder) ke pythonKONVERSI.bat.
+  2. Hasil muncul di folder yang sama dengan gambar:
+       NAMA.TXT           -> salin ke root flashdisk
+       NAMA_preview.png   -> cek jalur potong & urutan sebelum dipakai
+  3. Di mesin: F2 Files > F2 UDisk > pilih file > F6 (simpan ke internal)
+               F1 DiskFile > pilih file > F7 Preview > F8 OK
+  4. Uji dulu tanpa api: Space > F3 Frame, lalu dry run.
+
+TOOL WEB + SIMULASI 3D (BUKA-WEB.bat)
+  1. Klik dua kali BUKA-WEB.bat. Browser terbuka di http://localhost:8765
+     (jendela hitam harus tetap terbuka selama tool dipakai).
+  2. Seret file DWG/DXF ke kotak upload. Hasil, preview, dan Simulasi 3D muncul.
+  3. Klik "Simpan NAMA.TXT" -> file masuk folder Download.
+  Simulasi 3D: Putar/Jeda, geser slider waktu, ubah kecepatan, tebal plat,
+  kerf, dan waktu preheat. Mouse: putar (klik kiri), geser (klik kanan), zoom (scroll).
+  Tidak perlu internet, kecuali font tampilan.
+
+TITIK MULAI & TITIK NOL
+  - Torch menyala di SUDUT part (start_point = corner). Bentuk tanpa sudut tajam
+    mulai di ujung garis lurus. Ganti ke edge untuk tengah sisi terpanjang.
+  - Program diawali G92X0Y0: posisi torch saat Start = titik nol. Taruh torch di
+    pojok kiri bawah plat; part mulai 15 mm (offset_x / offset_y) dari situ.
+
+ATURAN GAMBAR
+  - Kontur luar & lubang harus garis TERTUTUP (polyline closed, circle, atau
+    line/arc yang ujungnya tersambung). Garis terbuka (tanda center, garis bantu)
+    otomatis diabaikan.
+  - Layer TEXT, DEFPOINTS, SCRIBE, DIM* diabaikan (ubah di dwg2cnc.ini).
+  - Satuan gambar mm, skala 1:1.
+  - Satu file boleh berisi beberapa part; lubang dikenali dari posisinya di dalam
+    kontur luar.
+
+APA YANG DILAKUKAN PROGRAM
+  - Lubang dipotong dulu, kontur luar terakhir (supaya part tidak bergeser).
+  - Kontur luar searah jarum jam, lubang berlawanan; G41 dipakai sehingga
+    kompensasi kerf mesin (parameter Kerf) menggeser torch ke sisi scrap.
+  - Lubang bulat kecil ditembus di titik tengah; kontur luar ditembus 8 mm di luar
+    part, di tengah sisi terpanjang.
+  - Kode yang dipakai hanya: G92 G21 G90/G91 G00 G01 G02 G03 G41 G40 M07 M08 M02
+    (sesuai Appendix 2 manual F2100B). Kecepatan potong TIDAK ditulis di file;
+    mesin memakai CutSpeed di layar.
+  - Setelah file dibuat, program menyimulasikan G-code-nya lagi dan mengecek
+    hasilnya sama dengan gambar ("Cek simulasi: OK").
+
+CATATAN
+  - Kalau DWG gagal dibaca: di AutoCAD ketik SAVEAS, pilih format DXF, lalu seret
+    file DXF-nya. Bisa juga install "ODA File Converter" (gratis); program akan
+    memakainya otomatis.
+  - Batas file mesin: 10.000 baris / 1 MB. Program memberi peringatan bila lewat.
+  - Arah sumbu: posisikan torch di pojok kiri bawah plat sebagai titik nol.
+    Kalau arah X/Y mesin terbalik, putar/mirror lewat F3 Part Option di mesin.
+
+Contoh command line:
+  python dwg2cnc.py gambar.dwg
+  python dwg2cnc.py folder_gambar --holes skip
+  python dwg2cnc.py gambar.dxf --mode G90 --ext .CNC --offset-x 20 --offset-y 20

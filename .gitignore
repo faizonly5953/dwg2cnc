@@ -1,0 +1,7 @@
+/dist/
+*.exe
+cpp/*.obj
+cpp/*.res
+__pycache__/
+*.pyc
+!libredwg/dwg2dxf.exe

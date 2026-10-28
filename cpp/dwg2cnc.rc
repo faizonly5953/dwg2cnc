@@ -1,0 +1,5 @@
+// Ikon aplikasi (dari 3d-printer-svgrepo-com.svg), dipakai dwg2cnc.exe dan dwg2cnc-gui.exe
+1 ICON "dwg2cnc.ico"
+// LibreDWG (GPLv3) ditanam di exe; diekstrak ke %TEMP%\dwg2cnc-libredwg saat membaca DWG
+1 RCDATA "..\libredwg\dwg2dxf.exe"
+2 RCDATA "..\libredwg\libredwg-0.dll"
