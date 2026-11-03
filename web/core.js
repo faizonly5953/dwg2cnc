@@ -227,8 +227,17 @@
 
   const orient = (loop, wantCcw) => ((loop.area() > 0) === wantCcw ? loop : loop.reversed());
 
-  // Start at a corner (nearest to the torch zero). Lead-in comes from the scrap side along the
-  // corner bisector. Parts without sharp corners start where a straight line meets an arc.
+  // Lead-in direction (start point -> pierce) and lead-out direction, 45 deg either side of the scrap
+  // normal n: the path in and out forms an X, so the cut always passes the start and the part drops
+  // free. On a 90 deg corner both lie in line with the part edges.
+  function xLead(n) {
+    const s2 = Math.sqrt(0.5), t = [n[1], -n[0]];   // cut direction at the start point
+    return [[(n[0] - t[0]) * s2, (n[1] - t[1]) * s2], [(n[0] + t[0]) * s2, (n[1] + t[1]) * s2]];
+  }
+
+  // Start at a corner (nearest to the torch zero). Lead-in/out from the scrap side: an X at the
+  // corner on outer contours, along the corner bisector on holes. Parts without sharp corners start
+  // where a straight line meets an arc.
   function cornerStart(loop, poly, cfg, isHole) {
     const tanAt = (s, p) => {
       let d;
@@ -256,16 +265,18 @@
     const v = loop.segs[k].p0;
     let bis = [-ta[1] - tb[1], ta[0] + tb[0]];
     const L0 = Math.hypot(bis[0], bis[1]) || 1; bis = [bis[0] / L0, bis[1] / L0];
+    // at a hole corner, leaving straight through the corner would cut into the part: keep the bisector
+    const [dIn, dOut] = isHole ? [bis, bis] : xLead(bis);
     const segs = [...loop.segs.slice(k), ...loop.segs.slice(0, k)];
     let L = +(isHole ? cfg.lead_in_hole : cfg.lead_in_outer), pierce = null;
     while (L >= 0.5) {
-      const p = [v[0] + bis[0] * L, v[1] + bis[1] * L];
+      const p = [v[0] + dIn[0] * L, v[1] + dIn[1] * L];
       if (pointInPoly(p, poly) === isHole) { pierce = p; break; }
       L /= 2;
     }
     if (!pierce) return null;
     const leadOut = +cfg.lead_out;
-    const lo = leadOut > 0 ? [v[0] + bis[0] * Math.min(leadOut, L), v[1] + bis[1] * Math.min(leadOut, L)] : null;
+    const lo = leadOut > 0 ? [v[0] + dOut[0] * Math.min(leadOut, L), v[1] + dOut[1] * Math.min(leadOut, L)] : null;
     return { pierce, segs, leadOut: lo, hole: isHole };
   }
 
@@ -307,14 +318,15 @@
     const segs = [b, ...loop.segs.slice(k + 1), ...loop.segs.slice(0, k), a];
     const start = b.p0;
     const t = loop.segs[k].tangentAtMid(), nrm = [-t[1], t[0]];
+    const [dIn, dOut] = xLead(nrm);
     let L = +(isHole ? cfg.lead_in_hole : cfg.lead_in_outer), pierce = start;
     while (L >= 0.5) {
-      const p = [start[0] + nrm[0] * L, start[1] + nrm[1] * L];
+      const p = [start[0] + dIn[0] * L, start[1] + dIn[1] * L];
       if (pointInPoly(p, poly) === isHole) { pierce = p; break; }
       L /= 2;
     }
     let lo = null;
-    if (leadOut > 0 && pierce !== start) { const ll = Math.min(leadOut, L); lo = [start[0] + nrm[0] * ll, start[1] + nrm[1] * ll]; }
+    if (leadOut > 0 && pierce !== start) { const ll = Math.min(leadOut, L); lo = [start[0] + dOut[0] * ll, start[1] + dOut[1] * ll]; }
     return { pierce, segs, leadOut: lo, hole: isHole };
   }
 

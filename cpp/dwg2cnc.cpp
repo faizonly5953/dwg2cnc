@@ -977,8 +977,17 @@ static Loop orient(const Loop& loop, bool wantCcw) { return (loop.area() > 0) ==
 
 struct Cut { P pierce; vector<Seg> segs; bool hasLo = false; P lo; bool hole = false, hook = false; };
 
-// Mulai potong di sudut (sudut terdekat dari titik nol torch). Lead-in masuk dari sisi scrap
-// searah garis bagi sudut, jadi tidak ada takik di tengah sisi part.
+// Arah lead-in (dari titik start ke titik tembus) dan lead-out, 45 derajat di kiri-kanan normal scrap n:
+// jalur masuk dan keluar membentuk X, potongan pasti lewat titik awal sehingga part lepas.
+// Di sudut 90 derajat keduanya segaris dengan sisi part.
+static void xLead(P n, P& dIn, P& dOut) {
+    double s2 = std::sqrt(0.5);
+    P t{n.y, -n.x};  // arah potong di titik start
+    dIn = {(n.x - t.x) * s2, (n.y - t.y) * s2}, dOut = {(n.x + t.x) * s2, (n.y + t.y) * s2};
+}
+
+// Mulai potong di sudut (sudut terdekat dari titik nol torch), jadi tidak ada takik di tengah sisi part.
+// Lead-in/out dari sisi scrap: kontur luar membentuk X di sudut, lubang searah garis bagi sudut.
 // Kontur luar (CW): sudut part = belok kanan. Lubang (CCW): sudut lubang = belok kiri.
 static bool cornerStart(const Loop& loop, const vector<P>& poly, const Cfg& cfg, bool isHole, Cut& out) {
     auto tanAt = [](const Seg& s, P p) {
@@ -1017,10 +1026,13 @@ static bool cornerStart(const Loop& loop, const vector<P>& poly, const Cfg& cfg,
     double L0 = std::hypot(bis.x, bis.y);
     if (L0 == 0) L0 = 1;
     bis = {bis.x / L0, bis.y / L0};
+    // di sudut lubang, keluar lurus melewati sudut berarti masuk ke part: tetap di garis bagi
+    P dIn = bis, dOut = bis;
+    if (!isHole) xLead(bis, dIn, dOut);
     double L = num(cfg, isHole ? "lead_in_hole" : "lead_in_outer");
     bool found = false;
     while (L >= 0.5) {
-        P p{v.x + bis.x * L, v.y + bis.y * L};
+        P p{v.x + dIn.x * L, v.y + dIn.y * L};
         if (pointInPoly(p, poly) == isHole) { out.pierce = p, found = true; break; }
         L /= 2;
     }
@@ -1028,7 +1040,7 @@ static bool cornerStart(const Loop& loop, const vector<P>& poly, const Cfg& cfg,
     out.segs.assign(loop.segs.begin() + best.k, loop.segs.end());
     out.segs.insert(out.segs.end(), loop.segs.begin(), loop.segs.begin() + best.k);
     double leadOut = num(cfg, "lead_out");
-    if (leadOut > 0) out.hasLo = true, out.lo = {v.x + bis.x * std::min(leadOut, L), v.y + bis.y * std::min(leadOut, L)};
+    if (leadOut > 0) out.hasLo = true, out.lo = {v.x + dOut.x * std::min(leadOut, L), v.y + dOut.y * std::min(leadOut, L)};
     return true;
 }
 
@@ -1079,17 +1091,19 @@ static Cut prepareCut(const Loop& loop0, bool isHole, const Cfg& cfg) {
     cut.segs.insert(cut.segs.end(), loop.segs.begin(), loop.segs.begin() + k);
     cut.segs.push_back(a);
     P start = b.p0, t = s.tangentAtMid(), nrm{-t.y, t.x};  // normal kiri = sisi scrap
+    P dIn, dOut;
+    xLead(nrm, dIn, dOut);
     double L = num(cfg, isHole ? "lead_in_hole" : "lead_in_outer");
     cut.pierce = start;
     bool found = false;
     while (L >= 0.5) {
-        P p{start.x + nrm.x * L, start.y + nrm.y * L};
+        P p{start.x + dIn.x * L, start.y + dIn.y * L};
         if (pointInPoly(p, poly) == isHole) { cut.pierce = p, found = true; break; }
         L /= 2;
     }
     if (leadOut > 0 && found) {
         double ll = std::min(leadOut, L);
-        cut.hasLo = true, cut.lo = {start.x + nrm.x * ll, start.y + nrm.y * ll};
+        cut.hasLo = true, cut.lo = {start.x + dOut.x * ll, start.y + dOut.y * ll};
     }
     return cut;
 }

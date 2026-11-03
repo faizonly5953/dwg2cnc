@@ -451,9 +451,18 @@ def orient(loop: Loop, want_ccw: bool) -> Loop:
     return loop if (loop.area() > 0) == want_ccw else loop.reversed()
 
 
+def x_lead(n):
+    """Arah lead-in (dari titik start ke titik tembus) dan lead-out, 45 derajat di kiri-kanan normal
+    scrap n: jalur masuk dan keluar membentuk X, potongan pasti lewat titik awal sehingga part lepas.
+    Di sudut 90 derajat keduanya segaris dengan sisi part."""
+    s2 = math.sqrt(0.5)
+    t = (n[1], -n[0])                                 # arah potong di titik start
+    return ((n[0] - t[0]) * s2, (n[1] - t[1]) * s2), ((n[0] + t[0]) * s2, (n[1] + t[1]) * s2)
+
+
 def corner_start(loop: Loop, poly, cfg: dict, is_hole: bool = False):
-    """Mulai potong di sudut (sudut terdekat dari titik nol torch).
-    Lead-in masuk dari sisi scrap searah garis bagi sudut, jadi tidak ada takik di tengah sisi part.
+    """Mulai potong di sudut (sudut terdekat dari titik nol torch), jadi tidak ada takik di tengah sisi part.
+    Lead-in/out dari sisi scrap: kontur luar membentuk X di sudut, lubang searah garis bagi sudut.
     Kontur luar (CW): sudut part = belok kanan. Lubang (CCW): sudut lubang = belok kiri."""
     def tan_at(s: Seg, p):
         if s.kind == "L":
@@ -490,11 +499,13 @@ def corner_start(loop: Loop, poly, cfg: dict, is_hole: bool = False):
     bis = (na[0] + nb[0], na[1] + nb[1])
     L0 = math.hypot(*bis) or 1.0
     bis = (bis[0] / L0, bis[1] / L0)
+    # di sudut lubang, keluar lurus melewati sudut berarti masuk ke part: tetap di garis bagi
+    d_in, d_out = (bis, bis) if is_hole else x_lead(bis)
     segs = loop.segs[k:] + loop.segs[:k]
     L = float(cfg["lead_in_hole"] if is_hole else cfg["lead_in_outer"])
     pierce = None
     while L >= 0.5:
-        p = (v[0] + bis[0] * L, v[1] + bis[1] * L)
+        p = (v[0] + d_in[0] * L, v[1] + d_in[1] * L)
         if point_in_poly(p, poly) == is_hole:
             pierce = p
             break
@@ -502,7 +513,7 @@ def corner_start(loop: Loop, poly, cfg: dict, is_hole: bool = False):
     if pierce is None:
         return None
     lead_out = float(cfg["lead_out"])
-    lo = (v[0] + bis[0] * min(lead_out, L), v[1] + bis[1] * min(lead_out, L)) if lead_out > 0 else None
+    lo = (v[0] + d_out[0] * min(lead_out, L), v[1] + d_out[1] * min(lead_out, L)) if lead_out > 0 else None
     return {"pierce": pierce, "segs": segs, "lead_out": lo}
 
 
@@ -549,10 +560,11 @@ def prepare_cut(loop: Loop, is_hole: bool, cfg: dict):
     start = b.p0
     t = loop.segs[k].tangent_at_mid()
     nrm = (-t[1], t[0])  # normal kiri = sisi scrap
+    d_in, d_out = x_lead(nrm)
     L = float(cfg["lead_in_hole"] if is_hole else cfg["lead_in_outer"])
     pierce = start
     while L >= 0.5:
-        p = (start[0] + nrm[0] * L, start[1] + nrm[1] * L)
+        p = (start[0] + d_in[0] * L, start[1] + d_in[1] * L)
         if point_in_poly(p, poly) == is_hole:
             pierce = p
             break
@@ -560,7 +572,7 @@ def prepare_cut(loop: Loop, is_hole: bool, cfg: dict):
     lo = None
     if lead_out > 0 and pierce != start:
         lo_len = min(lead_out, L)
-        lo = (start[0] + nrm[0] * lo_len, start[1] + nrm[1] * lo_len)
+        lo = (start[0] + d_out[0] * lo_len, start[1] + d_out[1] * lo_len)
     return {"pierce": pierce, "segs": segs, "lead_out": lo}
 
 

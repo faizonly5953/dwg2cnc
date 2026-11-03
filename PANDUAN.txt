@@ -59,6 +59,9 @@ APA YANG DILAKUKAN PROGRAM
     simetris kembali ke titik tengah. Jalur di file tepat di garis gambar; kerf
     tetap diatur mesin (G41 + parameter Kerf), sama seperti kontur luar.
   - Kontur luar ditembus 8 mm di luar part, di sudut atau tengah sisi terpanjang.
+    Lead-in dan lead-out membentuk X di titik mulai (di sudut 90 derajat segaris
+    dengan sisi part), jadi potongan selalu melewati titik awal dan part pasti lepas.
+    Lubang kotak/slot tetap masuk-keluar searah garis bagi sudut.
   - Kode yang dipakai hanya: G92 G21 G90/G91 G00 G01 G02 G03 G41 G40 M07 M08 M02
     (sesuai Appendix 2 manual F2100B), plus dwell G04P3.0 setelah tembus lubang
     bulat (pierce_dwell, kosongkan bila mesin menolak). Kecepatan potong TIDAK ditulis di file;
