@@ -16,7 +16,8 @@ Hasil per gambar (di folder yang sama dengan gambar):
 Pengaturan default dibaca dari dwg2cnc.ini (di folder yang sama dengan script).
 
 Kode G/M yang dipakai hanya yang ada di manual F2100B (Appendix 2):
-G92 G90 G91 G21 G41 G40 G00 G01 G02 G03 M07 M08 M02.
+G92 G90 G91 G21 G41 G40 G00 G01 G02 G03 M07 M08 M02, plus dwell tembus lubang
+bulat (pierce_dwell, default G04P3.0).
 """
 from __future__ import annotations
 
@@ -51,6 +52,9 @@ DEFAULTS = {
     "lead_in_outer": "8",          # panjang lead-in kontur luar (mm)
     "lead_in_hole": "6",           # lead-in lubang non-lingkaran (mm)
     "center_pierce_max_radius": "30",  # lubang bulat r <= ini: tembus di titik tengah
+    "kerf_width": "2.0",           # lebar kerf (mm): lubang bulat dipotong di jari-jari D/2 - kerf_width/2
+    "hook_radius": "2.5",          # jari-jari busur kail lead-in/out lubang bulat (mm)
+    "pierce_dwell": "G04P3.0",     # baris dwell setelah M07 di lubang bulat, kosong = tanpa
     "lead_out": "5",               # panjang lead-out (mm), 0 = tanpa
     "start_point": "corner",        # edge = tengah sisi terpanjang, corner = di sudut part
     "offset_x": "15",              # jarak part dari titik nol torch (mm)
@@ -503,23 +507,39 @@ def corner_start(loop: Loop, poly, cfg: dict, is_hole: bool = False):
     return {"pierce": pierce, "segs": segs, "lead_out": lo}
 
 
+def hook_cut(circle, cfg: dict):
+    """Lubang bulat, lead-in model kail: tembus, garis lurus, busur kecil yang masuk singgung ke
+    lingkaran, lingkaran penuh CCW, lalu lead-out simetris kembali ke titik tembus.
+    Kerf dikompensasi lewat jari-jari jalur (tanpa G41). None = lubang lebih kecil dari kerf."""
+    c, r = circle
+    rc = r - float(cfg["kerf_width"]) / 2              # jari-jari jalur torch
+    if rc <= 0:
+        return None
+    # jarak titik tembus dari tepi: di pusat, kecuali lubang besar (tembus dekat tepi)
+    if r <= float(cfg["center_pierce_max_radius"]):
+        L = rc
+    else:
+        L = min(float(cfg["lead_in_hole"]) * 2, rc * 0.6)
+    rh = max(0.0, min(float(cfg["hook_radius"]), L * 0.4))  # harus < L/2 supaya garis singgung ada
+    edge, opp = (c[0] - rc, c[1]), (c[0] + rc, c[1])
+    pierce = (edge[0] + L, c[1])
+    hc = (edge[0] + rh, c[1])                          # pusat busur kail, menyinggung lingkaran di edge
+    a = math.acos(rh / (L - rh)) if rh > 0 else 0.0
+    t_in = (hc[0] + rh * math.cos(a), c[1] + rh * math.sin(a))
+    t_out = (t_in[0], c[1] - rh * math.sin(a))
+    segs = [Seg("L", pierce, t_in), Seg("A", t_in, edge, hc, True),
+            Seg("A", edge, opp, c, True), Seg("A", opp, edge, c, True),
+            Seg("A", edge, t_out, hc, True), Seg("L", t_out, pierce)]
+    return {"pierce": pierce, "segs": segs, "lead_out": None, "hook": True}
+
+
 def prepare_cut(loop: Loop, is_hole: bool, cfg: dict):
     """Kontur luar diputar CW, lubang CCW -> sisi kiri jalur = sisi scrap (cocok dengan G41)."""
     loop = orient(loop, want_ccw=is_hole)
     lead_out = float(cfg["lead_out"])
 
     if is_hole and loop.circle:
-        c, r = loop.circle
-        start = (c[0] - r, c[1])                      # mulai di sisi kiri lingkaran
-        opp = (c[0] + r, c[1])
-        segs = [Seg("A", start, opp, c, True), Seg("A", opp, start, c, True)]
-        toward_c = lambda L: (start[0] + L, start[1])  # arah dari start menuju pusat
-        if r <= float(cfg["center_pierce_max_radius"]):
-            pierce = c
-        else:
-            pierce = toward_c(min(float(cfg["lead_in_hole"]) * 2, r * 0.6))
-        lo = toward_c(min(lead_out, r * 0.5)) if lead_out > 0 else None
-        return {"pierce": pierce, "segs": segs, "lead_out": lo}
+        return hook_cut(loop.circle, cfg)
 
     poly = loop.polygon()
     if cfg.get("start_point", "corner").lower() == "corner":
@@ -594,6 +614,8 @@ class GWriter:
         self.expected.append(p_r)
 
     def arc(self, s: Seg):
+        if dist(self.rnd(s.p1), self.pos) < 10 ** -self.dec:
+            return                     # busur tanpa jarak (mis. kail r=0): G03X0Y0 = lingkaran penuh di mesin
         if s.r > 1e5:
             return self.move("G01", s.p1)
         i, j = s.c[0] - self.pos[0], s.c[1] - self.pos[1]
@@ -630,7 +652,11 @@ def generate(path: str, cfg: dict):
             if holes_mode == "skip" or min(b[2] - b[0], b[3] - b[1]) < min_hole:
                 skipped_holes += 1
                 continue
-            holes.append(prepare_cut(shift(h), True, cfg))
+            cut = prepare_cut(shift(h), True, cfg)
+            if cut is None:            # lubang bulat lebih kecil dari kerf_width
+                skipped_holes += 1
+                continue
+            holes.append(cut)
         jobs.append((holes, prepare_cut(shift(part), False, cfg), shift(part).bbox()))
 
     # urutan: part terdekat dulu; dalam part, lubang (tetangga terdekat) lalu kontur luar
@@ -658,11 +684,15 @@ def generate(path: str, cfg: dict):
     g.raw("G21")
     g.raw(g.mode)
     use_kerf = cfg["kerf"].upper() == "G41"
+    dwell = "".join(cfg["pierce_dwell"].split())
     for _, c in order:
         g.move("G00", c["pierce"])
-        if use_kerf:
+        comp = use_kerf and not c.get("hook")      # lubang kail: kerf sudah di jari-jari, tanpa G41
+        if comp:
             g.raw("G41")
         g.raw("M07")
+        if c.get("hook") and dwell:
+            g.raw(dwell)
         g.pierces += 1
         g.move("G01", c["segs"][0].p0)
         for s in c["segs"]:
@@ -670,7 +700,7 @@ def generate(path: str, cfg: dict):
         if c["lead_out"]:
             g.move("G01", c["lead_out"])
         g.raw("M08")
-        if use_kerf:
+        if comp:
             g.raw("G40")
     if yes(cfg["return_home"]):
         g.move("G00", (0.0, 0.0))

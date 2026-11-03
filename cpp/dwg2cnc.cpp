@@ -197,6 +197,9 @@ static const vector<std::pair<string, string>> DEFAULTS = {
     {"lead_in_outer", "8"},           // panjang lead-in kontur luar (mm)
     {"lead_in_hole", "6"},            // lead-in lubang non-lingkaran (mm)
     {"center_pierce_max_radius", "30"},  // lubang bulat r <= ini: tembus di titik tengah
+    {"kerf_width", "2.0"},            // lebar kerf (mm): lubang bulat dipotong di jari-jari D/2 - kerf_width/2
+    {"hook_radius", "2.5"},           // jari-jari busur kail lead-in/out lubang bulat (mm)
+    {"pierce_dwell", "G04P3.0"},      // baris dwell setelah M07 di lubang bulat, kosong = tanpa
     {"lead_out", "5"},                // panjang lead-out (mm), 0 = tanpa
     {"start_point", "corner"},        // edge = tengah sisi terpanjang, corner = di sudut part
     {"offset_x", "15"},               // jarak part dari titik nol torch (mm)
@@ -973,7 +976,7 @@ static vector<int> buildParts(vector<Loop>& loops) {
 
 static Loop orient(const Loop& loop, bool wantCcw) { return (loop.area() > 0) == wantCcw ? loop : loop.reversed(); }
 
-struct Cut { P pierce; vector<Seg> segs; bool hasLo = false; P lo; bool hole = false; };
+struct Cut { P pierce; vector<Seg> segs; bool hasLo = false; P lo; bool hole = false, hook = false; };
 
 // Mulai potong di sudut (sudut terdekat dari titik nol torch). Lead-in masuk dari sisi scrap
 // searah garis bagi sudut, jadi tidak ada takik di tengah sisi part.
@@ -1030,6 +1033,28 @@ static bool cornerStart(const Loop& loop, const vector<P>& poly, const Cfg& cfg,
     return true;
 }
 
+// Lubang bulat, lead-in model kail: tembus, garis lurus, busur kecil yang masuk singgung ke
+// lingkaran, lingkaran penuh CCW, lalu lead-out simetris kembali ke titik tembus.
+// Kerf dikompensasi lewat jari-jari jalur (tanpa G41). segs kosong = lubang lebih kecil dari kerf.
+static Cut hookCut(P c, double r, const Cfg& cfg) {
+    Cut cut;
+    cut.hole = cut.hook = true;
+    double rc = r - num(cfg, "kerf_width") / 2;  // jari-jari jalur torch
+    if (rc <= 0) return cut;
+    // jarak titik tembus dari tepi: di pusat, kecuali lubang besar (tembus dekat tepi)
+    double L = r <= num(cfg, "center_pierce_max_radius") ? rc : std::min(num(cfg, "lead_in_hole") * 2, rc * 0.6);
+    double rh = std::max(0.0, std::min(num(cfg, "hook_radius"), L * 0.4));  // harus < L/2 supaya garis singgung ada
+    P edge{c.x - rc, c.y}, opp{c.x + rc, c.y};
+    cut.pierce = {edge.x + L, c.y};
+    P hc{edge.x + rh, c.y};  // pusat busur kail, menyinggung lingkaran di edge
+    double a = rh > 0 ? std::acos(rh / (L - rh)) : 0.0;
+    P tIn{hc.x + rh * std::cos(a), c.y + rh * std::sin(a)}, tOut{tIn.x, c.y - rh * std::sin(a)};
+    cut.segs = {{'L', cut.pierce, tIn}, {'A', tIn, edge, hc, true},
+                {'A', edge, opp, c, true}, {'A', opp, edge, c, true},
+                {'A', edge, tOut, hc, true}, {'L', tOut, cut.pierce}};
+    return cut;
+}
+
 // Kontur luar diputar CW, lubang CCW -> sisi kiri jalur = sisi scrap (cocok dengan G41)
 static Cut prepareCut(const Loop& loop0, bool isHole, const Cfg& cfg) {
     Loop loop = orient(loop0, isHole);
@@ -1037,16 +1062,7 @@ static Cut prepareCut(const Loop& loop0, bool isHole, const Cfg& cfg) {
     Cut cut;
     cut.hole = isHole;
 
-    if (isHole && loop.isCircle) {
-        P c = loop.cc;
-        double r = loop.cr;
-        P start{c.x - r, c.y}, opp{c.x + r, c.y};  // mulai di sisi kiri lingkaran
-        cut.segs = {{'A', start, opp, c, true}, {'A', opp, start, c, true}};
-        auto toward = [&](double L) { return P{start.x + L, start.y}; };  // dari start menuju pusat
-        cut.pierce = r <= num(cfg, "center_pierce_max_radius") ? c : toward(std::min(num(cfg, "lead_in_hole") * 2, r * 0.6));
-        if (leadOut > 0) cut.hasLo = true, cut.lo = toward(std::min(leadOut, r * 0.5));
-        return cut;
-    }
+    if (isHole && loop.isCircle) return hookCut(loop.cc, loop.cr, cfg);
 
     vector<P> poly = loop.polygon();
     if (lower(cfg.at("start_point")) == "corner" && cornerStart(loop, poly, cfg, isHole, cut)) return cut;
@@ -1126,6 +1142,7 @@ struct GWriter {
     }
 
     void arc(const Seg& s) {
+        if (dist(rp(s.p1), pos) < std::pow(10.0, -dec)) return;  // busur tanpa jarak (mis. kail r=0): G03X0Y0 = lingkaran penuh di mesin
         if (s.r() > 1e5) { move("G01", s.p1); return; }
         double i = s.c.x - pos.x, j = s.c.y - pos.y;
         P pr;
@@ -1172,7 +1189,9 @@ static GWriter generate(const wstring& path, const Cfg& cfg, Stats& st) {
         for (int h : loops[k].children) {
             Box b = loops[h].bbox();
             if (holesMode == "skip" || std::min(b.x1 - b.x0, b.y1 - b.y0) < minHole) { skippedHoles++; continue; }
-            j.holes.push_back(prepareCut(shift(loops[h]), true, cfg));
+            Cut cut = prepareCut(shift(loops[h]), true, cfg);
+            if (cut.segs.empty()) { skippedHoles++; continue; }  // lubang bulat lebih kecil dari kerf_width
+            j.holes.push_back(std::move(cut));
         }
         Loop sp = shift(loops[k]);
         j.outer = prepareCut(sp, false, cfg);
@@ -1217,10 +1236,14 @@ static GWriter generate(const wstring& path, const Cfg& cfg, Stats& st) {
     g.raw("G21");
     g.raw(g.mode);
     bool useKerf = upper(cfg.at("kerf")) == "G41";
+    string dwell;
+    for (char ch : cfg.at("pierce_dwell")) if (!isspace((unsigned char)ch)) dwell += ch;
     for (const Cut* c : order) {
         g.move("G00", c->pierce);
-        if (useKerf) g.raw("G41");
+        bool comp = useKerf && !c->hook;  // lubang kail: kerf sudah di jari-jari, tanpa G41
+        if (comp) g.raw("G41");
         g.raw("M07");
+        if (c->hook && !dwell.empty()) g.raw(dwell);
         g.pierces++;
         g.move("G01", c->segs[0].p0);
         for (auto& s : c->segs) {
@@ -1229,7 +1252,7 @@ static GWriter generate(const wstring& path, const Cfg& cfg, Stats& st) {
         }
         if (c->hasLo) g.move("G01", c->lo);
         g.raw("M08");
-        if (useKerf) g.raw("G40");
+        if (comp) g.raw("G40");
     }
     if (yes(cfg.at("return_home"))) g.move("G00", {0, 0});
     g.raw("M02");

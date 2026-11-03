@@ -23,7 +23,7 @@ kerf compensation (G41) and hole handling, and previews the result.
 2. **Filter** — entities (LINE, ARC, CIRCLE, polylines, nested blocks) are flattened into segments. Layers matching `ignore_layers` (text, dimensions, marks...) are dropped; if `cut_layers` is set, only those are kept.
 3. **Chain** — loose segments are joined into closed loops when their ends are within `join_tolerance`. Duplicate loops are removed and full circles are detected.
 4. **Classify** — loops are nested by point-in-polygon: an outer loop is a *part*, loops inside it are *holes*. Holes are skipped or cut per `holes` / `min_hole_diameter`.
-5. **Plan each cut** — direction is set so kerf compensation lands on the scrap side (G41 uses the machine's Kerf parameter). Round holes pierce at their centre (up to `center_pierce_max_radius`); other loops get a lead-in outside the part and an optional lead-out. The start point is a corner or the middle of the longest edge (`start_point`).
+5. **Plan each cut** — direction is set so kerf compensation lands on the scrap side (G41 uses the machine's Kerf parameter). Round holes (and loops of arcs that form a full circle) use a **hook lead-in**: pierce at the centre (up to `center_pierce_max_radius`, larger holes pierce near the edge), dwell (`pierce_dwell`), a short straight stem, a small arc of radius `hook_radius` that meets the circle tangentially (no notch in the hole wall), the full circle CCW, then a mirrored hook back to the pierce point. Round holes are cut without G41: the kerf is taken out of the path radius (`D/2 - kerf_width/2`). Other loops get a lead-in outside the part and an optional lead-out. The start point is a corner or the middle of the longest edge (`start_point`).
 6. **Order** — nearest part first; inside a part, holes by nearest pierce point, then the outer contour last so the part stays supported.
 7. **Write G-code** — `G92 G21 G90/G91`, then rapid moves (`G00`), `M07` torch on, cuts (`G01/G02/G03`), `M08` torch off, return home, `M02`. Coordinates are shifted by `offset_x/y` and may be incremental (G91, the FastCAM style) or absolute (G90).
 8. **Verify and preview** — the generated G-code is re-parsed and simulated to check the path and estimate cut time (`cut_speed`), then drawn as `_preview.png` (CLI) or animated in 2D/3D (GUI and web).
@@ -49,10 +49,29 @@ Drag files or a folder onto the exe (or the GUI window). Settings come from `dwg
 ## Settings (`dwg2cnc.ini`)
 
 `mode` (G91/G90), `kerf` (G41/NONE), `holes` (cut/skip), `min_hole_diameter`, `lead_in_outer`, `lead_in_hole`,
-`lead_out`, `start_point`, `offset_x/y`, `ignore_layers`, `cut_layers`, `cut_speed`, `preview`, etc.
-Each key is documented (in Indonesian) in the file itself.
+`center_pierce_max_radius`, `kerf_width`, `hook_radius`, `pierce_dwell`, `lead_out`, `start_point`, `offset_x/y`,
+`ignore_layers`, `cut_layers`, `cut_speed`, `preview`, etc. Each key is documented (in Indonesian) in the file itself.
 
-Only G-codes from the F2100B manual are emitted: `G92 G90 G91 G21 G41 G40 G00 G01 G02 G03 M07 M08 M02`.
+A round hole, D=18 with `kerf_width = 2.0` and `hook_radius = 2.5` (G91, relative to the hole centre):
+
+```
+G00X..Y..                          rapid to the hole centre
+M07
+G04P3.0                            pierce dwell (pierce_dwell)
+G01X-4.364Y2.227                   hook stem
+G03X-3.636Y-2.227I-1.136J-2.227    hook arc, tangent to the circle
+G03X16.0Y0.0I8.0J0.0               circle, first half (radius 9 - 1 = 8)
+G03X-16.0Y0.0I-8.0J0.0             circle, second half
+G03X3.636Y-2.227I2.5J0.0           lead-out arc
+G01X4.364Y2.227                    back to the centre
+M08
+```
+
+The hook radius shrinks automatically on small holes (at most 0.4 × the stem distance), and a round hole not
+wider than `kerf_width` is skipped.
+
+Only G-codes from the F2100B manual are emitted: `G92 G90 G91 G21 G41 G40 G00 G01 G02 G03 M07 M08 M02`, plus the
+round-hole pierce dwell (`pierce_dwell`, default `G04P3.0`; leave it empty if your controller rejects it).
 **Always dry-run (`Space > F3 Frame`, no flame) before cutting.**
 
 ## License

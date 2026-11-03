@@ -53,10 +53,15 @@ APA YANG DILAKUKAN PROGRAM
   - Lubang dipotong dulu, kontur luar terakhir (supaya part tidak bergeser).
   - Kontur luar searah jarum jam, lubang berlawanan; G41 dipakai sehingga
     kompensasi kerf mesin (parameter Kerf) menggeser torch ke sisi scrap.
-  - Lubang bulat kecil ditembus di titik tengah; kontur luar ditembus 8 mm di luar
-    part, di tengah sisi terpanjang.
+  - Lubang bulat (r <= 30 mm) ditembus di titik tengah lalu masuk dengan lead-in
+    model kail: garis lurus pendek + busur kecil yang menyinggung lingkaran, jadi
+    tidak ada takik di dinding lubang. Setelah lingkaran penuh, torch keluar
+    simetris kembali ke titik tengah. Lubang bulat TANPA G41: kerf dikompensasi
+    lewat jari-jari jalur (D/2 - kerf_width/2, atur kerf_width di dwg2cnc.ini).
+  - Kontur luar ditembus 8 mm di luar part, di sudut atau tengah sisi terpanjang.
   - Kode yang dipakai hanya: G92 G21 G90/G91 G00 G01 G02 G03 G41 G40 M07 M08 M02
-    (sesuai Appendix 2 manual F2100B). Kecepatan potong TIDAK ditulis di file;
+    (sesuai Appendix 2 manual F2100B), plus dwell G04P3.0 setelah tembus lubang
+    bulat (pierce_dwell, kosongkan bila mesin menolak). Kecepatan potong TIDAK ditulis di file;
     mesin memakai CutSpeed di layar.
   - Setelah file dibuat, program menyimulasikan G-code-nya lagi dan mengecek
     hasilnya sama dengan gambar ("Cek simulasi: OK").
