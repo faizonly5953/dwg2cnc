@@ -9,7 +9,7 @@
   const DEFAULTS = {
     mode: 'G91', kerf: 'G41', holes: 'cut', min_hole_diameter: 0,
     lead_in_outer: 8, lead_in_hole: 6, center_pierce_max_radius: 30, start_point: 'corner', lead_out: 5,
-    kerf_width: 2.0, hook_radius: 2.5, pierce_dwell: 'G04P3.0',
+    hook_radius: 2.5, pierce_dwell: 'G04P3.0',
     offset_x: 15, offset_y: 15, return_home: true, decimals: 3, ext: '.TXT',
     header_comment: true,
     ignore_layers: 'TEXT,DEFPOINTS,SCRIBE,DIM*,*DIMENSION*,MARK*,TITLE*',
@@ -270,16 +270,14 @@
   }
 
   // Round hole, hook lead-in: pierce, straight line, small arc entering the circle tangentially,
-  // full CCW circle, then a mirrored lead-out back to the pierce point. Kerf is compensated in the
-  // path radius (no G41). null = hole smaller than the kerf.
+  // full CCW circle, then a mirrored lead-out back to the pierce point. The path is on the drawing
+  // line; the machine applies the kerf through G41, like every other contour.
   function hookCut(circle, cfg) {
     const [c, r] = circle;
-    const rc = r - +cfg.kerf_width / 2;                 // torch path radius
-    if (rc <= 0) return null;
     // pierce distance from the edge: at the centre, except big holes (pierce near the edge)
-    const L = r <= +cfg.center_pierce_max_radius ? rc : Math.min(+cfg.lead_in_hole * 2, rc * 0.6);
+    const L = r <= +cfg.center_pierce_max_radius ? r : Math.min(+cfg.lead_in_hole * 2, r * 0.6);
     const rh = Math.max(0, Math.min(+cfg.hook_radius, L * 0.4));   // must be < L/2 for the tangent line
-    const edge = [c[0] - rc, c[1]], opp = [c[0] + rc, c[1]];
+    const edge = [c[0] - r, c[1]], opp = [c[0] + r, c[1]];
     const pierce = [edge[0] + L, c[1]];
     const hc = [edge[0] + rh, c[1]];                    // hook arc centre, touches the circle at edge
     const a = rh > 0 ? Math.acos(rh / (L - rh)) : 0;
@@ -367,9 +365,7 @@
       for (const h of part.children) {
         const b = h.bbox();
         if (String(cfg.holes).toLowerCase() === 'skip' || Math.min(b[2] - b[0], b[3] - b[1]) < minHole) { skippedHoles++; continue; }
-        const cut = prepareCut(shift(h), true, cfg);
-        if (!cut) { skippedHoles++; continue; }          // round hole smaller than kerf_width
-        holes.push(cut);
+        holes.push(prepareCut(shift(h), true, cfg));
       }
       const sp = shift(part);
       return { holes, outer: prepareCut(sp, false, cfg), bbox: sp.bbox() };
@@ -393,15 +389,14 @@
     const dwell = String(cfg.pierce_dwell || '').replace(/\s+/g, '');
     for (const c of order) {
       g.move('G00', c.pierce);
-      const comp = kerf && !c.hook;                   // hook hole: kerf is in the radius, no G41
-      if (comp) g.raw('G41');
+      if (kerf) g.raw('G41');
       g.raw('M07'); g.pierces++;
       if (c.hook && dwell) g.raw(dwell);
       g.move('G01', c.segs[0].p0);
       for (const s of c.segs) { if (s.kind === 'L') g.move('G01', s.p1); else g.arc(s); }
       if (c.leadOut) g.move('G01', c.leadOut);
       g.raw('M08');
-      if (comp) g.raw('G40');
+      if (kerf) g.raw('G40');
     }
     if (truthy(cfg.return_home)) g.move('G00', [0, 0]);
     g.raw('M02');

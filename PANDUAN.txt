@@ -56,8 +56,8 @@ APA YANG DILAKUKAN PROGRAM
   - Lubang bulat (r <= 30 mm) ditembus di titik tengah lalu masuk dengan lead-in
     model kail: garis lurus pendek + busur kecil yang menyinggung lingkaran, jadi
     tidak ada takik di dinding lubang. Setelah lingkaran penuh, torch keluar
-    simetris kembali ke titik tengah. Lubang bulat TANPA G41: kerf dikompensasi
-    lewat jari-jari jalur (D/2 - kerf_width/2, atur kerf_width di dwg2cnc.ini).
+    simetris kembali ke titik tengah. Jalur di file tepat di garis gambar; kerf
+    tetap diatur mesin (G41 + parameter Kerf), sama seperti kontur luar.
   - Kontur luar ditembus 8 mm di luar part, di sudut atau tengah sisi terpanjang.
   - Kode yang dipakai hanya: G92 G21 G90/G91 G00 G01 G02 G03 G41 G40 M07 M08 M02
     (sesuai Appendix 2 manual F2100B), plus dwell G04P3.0 setelah tembus lubang

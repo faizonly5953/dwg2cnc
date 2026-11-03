@@ -52,7 +52,6 @@ DEFAULTS = {
     "lead_in_outer": "8",          # panjang lead-in kontur luar (mm)
     "lead_in_hole": "6",           # lead-in lubang non-lingkaran (mm)
     "center_pierce_max_radius": "30",  # lubang bulat r <= ini: tembus di titik tengah
-    "kerf_width": "2.0",           # lebar kerf (mm): lubang bulat dipotong di jari-jari D/2 - kerf_width/2
     "hook_radius": "2.5",          # jari-jari busur kail lead-in/out lubang bulat (mm)
     "pierce_dwell": "G04P3.0",     # baris dwell setelah M07 di lubang bulat, kosong = tanpa
     "lead_out": "5",               # panjang lead-out (mm), 0 = tanpa
@@ -510,18 +509,15 @@ def corner_start(loop: Loop, poly, cfg: dict, is_hole: bool = False):
 def hook_cut(circle, cfg: dict):
     """Lubang bulat, lead-in model kail: tembus, garis lurus, busur kecil yang masuk singgung ke
     lingkaran, lingkaran penuh CCW, lalu lead-out simetris kembali ke titik tembus.
-    Kerf dikompensasi lewat jari-jari jalur (tanpa G41). None = lubang lebih kecil dari kerf."""
+    Jalur tepat di garis gambar; kerf diatur mesin lewat G41 seperti kontur lain."""
     c, r = circle
-    rc = r - float(cfg["kerf_width"]) / 2              # jari-jari jalur torch
-    if rc <= 0:
-        return None
     # jarak titik tembus dari tepi: di pusat, kecuali lubang besar (tembus dekat tepi)
     if r <= float(cfg["center_pierce_max_radius"]):
-        L = rc
+        L = r
     else:
-        L = min(float(cfg["lead_in_hole"]) * 2, rc * 0.6)
+        L = min(float(cfg["lead_in_hole"]) * 2, r * 0.6)
     rh = max(0.0, min(float(cfg["hook_radius"]), L * 0.4))  # harus < L/2 supaya garis singgung ada
-    edge, opp = (c[0] - rc, c[1]), (c[0] + rc, c[1])
+    edge, opp = (c[0] - r, c[1]), (c[0] + r, c[1])
     pierce = (edge[0] + L, c[1])
     hc = (edge[0] + rh, c[1])                          # pusat busur kail, menyinggung lingkaran di edge
     a = math.acos(rh / (L - rh)) if rh > 0 else 0.0
@@ -652,11 +648,7 @@ def generate(path: str, cfg: dict):
             if holes_mode == "skip" or min(b[2] - b[0], b[3] - b[1]) < min_hole:
                 skipped_holes += 1
                 continue
-            cut = prepare_cut(shift(h), True, cfg)
-            if cut is None:            # lubang bulat lebih kecil dari kerf_width
-                skipped_holes += 1
-                continue
-            holes.append(cut)
+            holes.append(prepare_cut(shift(h), True, cfg))
         jobs.append((holes, prepare_cut(shift(part), False, cfg), shift(part).bbox()))
 
     # urutan: part terdekat dulu; dalam part, lubang (tetangga terdekat) lalu kontur luar
@@ -687,8 +679,7 @@ def generate(path: str, cfg: dict):
     dwell = "".join(cfg["pierce_dwell"].split())
     for _, c in order:
         g.move("G00", c["pierce"])
-        comp = use_kerf and not c.get("hook")      # lubang kail: kerf sudah di jari-jari, tanpa G41
-        if comp:
+        if use_kerf:
             g.raw("G41")
         g.raw("M07")
         if c.get("hook") and dwell:
@@ -700,7 +691,7 @@ def generate(path: str, cfg: dict):
         if c["lead_out"]:
             g.move("G01", c["lead_out"])
         g.raw("M08")
-        if comp:
+        if use_kerf:
             g.raw("G40")
     if yes(cfg["return_home"]):
         g.move("G00", (0.0, 0.0))

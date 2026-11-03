@@ -150,7 +150,7 @@ pre .ln { color: var(--muted); user-select: none; display: inline-block; width: 
 <div class="wrap">
   <header>
     <h1>DWG <span>→</span> G-code F2100B</h1>
-    <p class="sub">Upload gambar DWG atau DXF, lalu simpan file .TXT untuk flashdisk mesin CNC MiniCut. Lubang dipotong dulu, kontur luar terakhir dengan kompensasi kerf G41. Lubang bulat memakai lead-in kail dari titik tengah.</p>
+    <p class="sub">Upload gambar DWG atau DXF, lalu simpan file .TXT untuk flashdisk mesin CNC MiniCut. Lubang dipotong dulu, kontur luar terakhir, dengan kompensasi kerf G41. Lubang bulat memakai lead-in kail dari titik tengah.</p>
   </header>
 
   <div class="grid">
@@ -179,9 +179,7 @@ pre .ln { color: var(--muted); user-select: none; display: inline-block; width: 
             <input id="s_lio" name="lead_in_outer" type="number" min="0" step="0.5"></div>
           <div class="f"><label for="s_lo">Lead-out <span class="unit">mm</span></label>
             <input id="s_lo" name="lead_out" type="number" min="0" step="0.5"></div>
-          <div class="f"><label for="s_kw">Kerf lubang bulat <span class="unit">mm</span></label>
-            <input id="s_kw" name="kerf_width" type="number" min="0" step="0.1"></div>
-          <div class="f"><label for="s_hook">Radius kail <span class="unit">mm</span></label>
+          <div class="f"><label for="s_hook">Radius kail lubang <span class="unit">mm</span></label>
             <input id="s_hook" name="hook_radius" type="number" min="0" step="0.5"></div>
           <div class="f full"><label for="s_dwell">Dwell tembus lubang bulat <span class="unit">(kosong = tanpa)</span></label>
             <input id="s_dwell" name="pierce_dwell" type="text" placeholder="mis. G04P3.0"></div>
@@ -300,8 +298,8 @@ M02</script>
   const $ = (id) => document.getElementById(id);
   const KEY = 'dwg2cnc.settings';
   const DEF = Object.assign({}, D.DEFAULTS, { return_home: 'yes' });
-  const FIELDS = ['mode', 'kerf', 'holes', 'start_point','min_hole_diameter', 'lead_in_outer', 'lead_out', 'kerf_width', 'hook_radius', 'pierce_dwell', 'offset_x', 'offset_y', 'ext', 'return_home', 'ignore_layers', 'cut_layers', 'cut_speed'];
-  const NUMS = ['min_hole_diameter', 'lead_in_outer', 'lead_out', 'kerf_width', 'hook_radius', 'offset_x', 'offset_y', 'cut_speed'];
+  const FIELDS = ['mode', 'kerf', 'holes', 'start_point','min_hole_diameter', 'lead_in_outer', 'lead_out', 'hook_radius', 'pierce_dwell', 'offset_x', 'offset_y', 'ext', 'return_home', 'ignore_layers', 'cut_layers', 'cut_speed'];
+  const NUMS = ['min_hole_diameter', 'lead_in_outer', 'lead_out', 'hook_radius', 'offset_x', 'offset_y', 'cut_speed'];
   const form = $('settings');
   const results = $('results');
   let files = [];
